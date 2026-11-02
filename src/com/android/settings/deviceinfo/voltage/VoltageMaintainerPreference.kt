@@ -32,7 +32,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextUtils
 import android.text.style.ForegroundColorSpan
-import android.text.style.StyleSpan
+import android.text.style.TypefaceSpan
 import android.util.TypedValue
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -67,35 +67,16 @@ class VoltageMaintainerPreference :
         preference.isIconSpaceReserved = false
 
         val buildStatus = getBuildStatus(context)
-        val maintainerLine =
-            if (buildStatus != context.getString(R.string.unknown)) {
-                "$buildStatus by ${context.getString(R.string.voltage_maintainer)}"
-            } else {
-                context.getString(R.string.unknown)
-            }
+        val maintainerName = context.getString(R.string.voltage_maintainer)
 
-        if (!buildStatus.equals("OFFICIAL", ignoreCase = true)) {
-            statusPreference?.setStatusIcon(0, animate = false)
-            preference.summary = maintainerLine
-            preference.isCopyingEnabled = false
-            return
-        }
+        statusPreference?.setStatusIcon(R.drawable.ic_gpg_verified_anim, animate = true)
 
         val gpgKey = SystemProperties.get(GPG_KEY_PROPERTY, "")
         val gpgUid = SystemProperties.get(GPG_UID_PROPERTY, "")
+        val uid = if (!TextUtils.isEmpty(gpgUid)) decodeHexUid(gpgUid) else MAINTAINER_EMAIL
 
-        if (!TextUtils.isEmpty(gpgKey) && !TextUtils.isEmpty(gpgUid)) {
-            statusPreference?.setStatusIcon(R.drawable.ic_gpg_verified_anim, animate = true)
-            preference.summary = buildMergedSummary(preference, maintainerLine, gpgKey, gpgUid)
-            preference.isCopyingEnabled = false
-        } else {
-            statusPreference?.setStatusIcon(R.drawable.ic_gpg_tampered_anim, animate = true)
-            preference.summary =
-                SpannableStringBuilder(maintainerLine)
-                    .append("\n")
-                    .append(context.getString(R.string.voltage_tampered_build_summary))
-            preference.isCopyingEnabled = false
-        }
+        preference.summary = buildMergedSummary(preference, buildStatus, maintainerName, gpgKey, uid)
+        preference.isCopyingEnabled = false
     }
 
     private fun getBuildStatus(context: Context): String {
@@ -109,34 +90,51 @@ class VoltageMaintainerPreference :
 
     private fun buildMergedSummary(
         preference: Preference,
-        maintainerLine: CharSequence,
+        buildStatus: String,
+        maintainerName: String,
         gpgKey: String,
-        gpgUid: String,
+        uid: String,
     ): CharSequence {
-        val summary = SpannableStringBuilder(maintainerLine)
-        summary.append("\n")
-        if (!preference.context.resources.getBoolean(R.bool.config_show_gpg_uid)) {
-            summary.append(gpgKey)
-            return summary
+        val summary = SpannableStringBuilder()
+        val googleSans = Typeface.create("google-sans", Typeface.NORMAL)
+
+        if (buildStatus != preference.context.getString(R.string.unknown)) {
+            summary.append(buildStatus)
+            summary.append(" by ")
+            val nameStart = summary.length
+            summary.append(maintainerName)
+            summary.setSpan(
+                TypefaceSpan(googleSans),
+                nameStart,
+                summary.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        } else {
+            summary.append(preference.context.getString(R.string.unknown))
         }
-        val uid = decodeHexUid(gpgUid)
+
+        summary.append("\n")
+
         val accent = resolveColor(preference, android.R.attr.colorAccent)
-        val start = summary.length
+        val emailStart = summary.length
         summary.append(uid)
         summary.setSpan(
             ForegroundColorSpan(accent),
-            start,
+            emailStart,
             summary.length,
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
         )
         summary.setSpan(
-            StyleSpan(Typeface.BOLD),
-            start,
+            TypefaceSpan(googleSans),
+            emailStart,
             summary.length,
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
         )
-        summary.append("\n")
-        summary.append(gpgKey)
+
+        if (!TextUtils.isEmpty(gpgKey)) {
+            summary.append("\n")
+            summary.append(gpgKey)
+        }
         return summary
     }
 
@@ -259,6 +257,7 @@ class VoltageMaintainerPreference :
         const val GPG_KEY_PROPERTY: String = "ro.voltage.maintainer.gpg_key"
         const val GPG_UID_PROPERTY: String = "ro.voltage.maintainer.gpg_uid"
 
+        private const val MAINTAINER_EMAIL = "mail.sathiya@rediffmail.com"
         private const val HOLD_TO_LAUNCH_MS = 5000L
         private const val EASTER_EGG_PACKAGE = "com.voltage.os.easteregg"
     }
